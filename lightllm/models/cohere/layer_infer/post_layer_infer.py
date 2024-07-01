@@ -1,32 +1,32 @@
 import torch
-import torch.functional as F
 import torch.distributed as dist
 import numpy as np
+
+from lightllm.models.cohere.infer_struct import CohereInferStateInfo
+from lightllm.models.cohere.layer_weights.pre_and_post_layer_weight import CoherePreAndPostLayerWeight
+from lightllm.models.cohere.triton_kernels.layernorm import layernorm_forward
 from lightllm.common.basemodel.layer_weights.base_layer_weight import BaseLayerWeight
 from lightllm.common.basemodel.splitfuse_infer_struct import SplitFuseInferStateInfo
 
-from lightllm.models.llama.layer_weights.pre_and_post_layer_weight import LlamaPreAndPostLayerWeight
 from einops import rearrange
-from lightllm.models.llama.infer_struct import LlamaInferStateInfo
-from lightllm.models.llama.triton_kernel.rmsnorm import rmsnorm_forward
 from lightllm.common.basemodel import PostLayerInferTpl
-from lightllm.utils.infer_utils import mark_cost_time
 
 
-class LlamaPostLayerInfer(PostLayerInferTpl):
-    """ """
-
+class CoherePostLayerInfer(PostLayerInferTpl):
     def __init__(self, tp_rank, world_size, network_config, mode):
         super().__init__(tp_rank, world_size, network_config, mode)
-        self.eps_ = network_config["rms_norm_eps"]
+        self.eps_ = network_config["layer_norm_eps"]
         self.vocab_size_ = network_config["vocab_size"]
         self.embed_dim_ = network_config["n_embed"]
+        self.logits_scale = network_config["logit_scale"]
         return
 
-    def _norm(self, input, infer_state, layer_weight: LlamaPreAndPostLayerWeight) -> torch.Tensor:
-        return rmsnorm_forward(input, layer_weight.final_norm_weight_, eps=self.eps_)
+    def _norm(self, input, infer_state, layer_weight: CoherePreAndPostLayerWeight) -> torch.Tensor:
+        return layernorm_forward(
+            input.unsqueeze(1), layer_weight.final_norm_weight_.unsqueeze(0), eps=self.eps_
+        ).squeeze(1)
 
-    def _slice_get_last_input(self, input_embdings, infer_state: LlamaInferStateInfo):
+    def _slice_get_last_input(self, input_embdings, infer_state: CohereInferStateInfo):
         if infer_state.is_splitfuse:
             # for SplitFuse
             batch_size = infer_state.batch_size
@@ -90,7 +90,9 @@ class LlamaPostLayerInfer(PostLayerInferTpl):
 
         assert False, "Error State"
 
-    def token_forward(self, input_embdings, infer_state: LlamaInferStateInfo, layer_weight: LlamaPreAndPostLayerWeight):
+    def token_forward(
+        self, input_embdings, infer_state: CohereInferStateInfo, layer_weight: CoherePreAndPostLayerWeight
+    ):
         last_input, token_num = self._slice_get_last_input(input_embdings, infer_state)
         input_embdings_dtype = input_embdings.dtype
         input_embdings = None
@@ -112,6 +114,7 @@ class LlamaPostLayerInfer(PostLayerInferTpl):
                 group=None,
                 async_op=False,
             )
+        gather_data = gather_data * self.logits_scale
         logic_batch = None
 
         ans_logics = gather_data.permute(1, 0).float()
