@@ -118,6 +118,17 @@ def normal_or_p_d_start(args):
     if args.diverse_mode:
         assert args.router_token_ratio == 0.0
 
+    # performance_mode 参数处理
+    if args.performance_mode == "personal":
+        args.running_max_req_size = 3
+        args.batch_max_tokens = 2048
+        args.chunked_prefill_size = 1024
+        args.mem_fraction = 0.85
+        logger.info(
+            f"performance_mode is personal, set running_max_req_size to 3,"
+            f"batch_max_tokens to 2048, chunked_prefill_size to 1024, mem_fraction to 0.85"
+        )
+
     if not args.disable_shm_warning:
         check_recommended_shm_size(args)
 
