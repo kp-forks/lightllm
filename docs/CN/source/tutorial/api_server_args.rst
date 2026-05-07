@@ -304,13 +304,13 @@ PD 分离模式参数
 性能优化参数
 ------------
 
-.. option:: --disable_custom_allreduce
+.. option:: --disable_symm_mem_allreduce
 
-    是否禁用自定义 allreduce
+    禁用默认开启的 SymmMem all-reduce 快路径，并回退到 NCCL
 
-.. option:: --enable_custom_allgather
+.. option:: --disable_flashinfer_allreduce
 
-    是否启用自定义 allgather
+    禁用默认开启的 FlashInfer all-reduce 快路径，并回退到 SymmMem / NCCL
 
 .. option:: --enable_tpsp_mix_mode
 
